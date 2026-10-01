@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Customer Health Score — Dashboard</title>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --fg: #0f172a;
+    --muted: #64748b;
+    --accent: #2563eb;
+    --healthy: #16a34a;
+    --watch: #f59e0b;
+    --at-risk: #ea580c;
+    --critical: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.45;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 24px 20px 60px; }
+  header { margin-bottom: 20px; }
+  header h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.02em; }
+  header p { margin: 6px 0 0; color: var(--muted); font-size: 0.95rem; }
+  .badge {
+    display: inline-block; margin-top: 10px; padding: 3px 10px; font-size: 0.75rem;
+    background: #eff6ff; color: var(--accent); border: 1px solid #bfdbfe; border-radius: 999px;
+  }
+  .grid-kpi { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+  .kpi {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .kpi .label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .kpi .value { font-size: 1.5rem; font-weight: 700; }
+  .kpi .sub { font-size: 0.78rem; color: var(--muted); }
+  .grid-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 22px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px;
+  }
+  .card h2 { margin: 0 0 12px; font-size: 1rem; }
+  .chart-box { position: relative; height: 280px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); }
+  th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: #fff; }
+  .health-bar { height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; width: 100%; min-width: 60px; }
+  .health-bar > div { height: 100%; border-radius: 999px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .renewal-list { list-style: none; margin: 0; padding: 0; }
+  .renewal-list li { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+  .muted { color: var(--muted); }
+  @media (max-width: 800px) {
+    .grid-kpi { grid-template-columns: repeat(2, 1fr); }
+    .grid-charts { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Customer Health Score · Salud de Cartera</h1>
+    <p>Customer Success — engine demo · Motor de health score (datos sintéticos / synthetic data)</p>
+    <span class="badge" id="meta-badge">…</span>
+  </header>
+
+  <div class="grid-kpi" id="kpi"></div>
+
+  <div class="grid-charts">
+    <div class="card">
+      <h2>Distribución de salud · Health distribution</h2>
+      <div class="chart-box"><canvas id="chart-health"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>ARR por tier · ARR by tier</h2>
+      <div class="chart-box"><canvas id="chart-tier"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:22px;">
+    <h2>Cuentas en riesgo · At-risk accounts</h2>
+    <div style="overflow-x:auto;">
+      <table id="risk-table">
+        <thead>
+          <tr>
+            <th>Cuenta · Account</th><th>Tier</th><th>ARR</th>
+            <th>Salud · Health</th><th>Riesgo · Risk</th><th>NPS</th><th>Renovación · Renewal</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Próximas renovaciones · Upcoming renewals</h2>
+    <ul class="renewal-list" id="renewals"></ul>
+  </div>
+</div>
+
+<script src="vendor/chart.umd.min.js"></script>
+<script>
+(function () {
+  var riskColor = { "Healthy": "#16a34a", "Watch": "#f59e0b", "At-risk": "#ea580c", "Critical": "#dc2626" };
+  function money(v) {
+    if (v >= 1e6) return "$" + (v / 1e6).toFixed(2) + "M";
+    if (v >= 1e3) return "$" + Math.round(v / 1e3) + "K";
+    return "$" + Math.round(v);
+  }
+  function pct(v) { return (v * 100).toFixed(1) + "%"; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+
+  fetch("../data/portfolio.json")
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var s = data.summary, accts = data.accounts;
+      document.getElementById("meta-badge").textContent =
+        "Generado · Generated: " + (data.meta.generated_at || "").slice(0, 10) +
+        "  ·  " + s.total_accounts + " cuentas · accounts  ·  " +
+        "100% datos ficticios · fictional data";
+
+      // --- KPIs ---
+      var kpis = [
+        ["ARR total", money(s.total_arr), s.total_accounts + " cuentas · accounts"],
+        ["NRR · Retención neta", pct(s.nrr), "Net revenue retention"],
+        ["GRR · Retención bruta", pct(s.grr), "Gross revenue retention"],
+        ["En riesgo · At-risk", s.at_risk_count, "ARR " + money(s.arr_at_risk)],
+        ["Churn logo", pct(s.logo_churn), "Rev " + pct(s.revenue_churn)],
+        ["Expansión · Expansion", money(s.expansion), "Upsell / cross-sell"],
+        ["QBR coverage", pct(s.qbr_coverage), "Cuentas con QBR"],
+        ["SLA compliance", s.sla_compliance + "%", "Tickets dentro de SLA"],
+      ];
+      document.getElementById("kpi").innerHTML = kpis.map(function (k) {
+        return '<div class="kpi"><span class="label">' + esc(k[0]) + '</span>' +
+          '<span class="value">' + esc(k[1]) + '</span>' +
+          '<span class="sub">' + esc(k[2]) + '</span></div>';
+      }).join("");
+
+      // --- Health distribution (bar) ---
+      var levels = ["Healthy", "Watch", "At-risk", "Critical"];
+      new Chart(document.getElementById("chart-health"), {
+        type: "bar",
+        data: {
+          labels: levels,
+          datasets: [{
+            label: "Cuentas · Accounts",
+            data: levels.map(function (l) { return s.health_distribution[l]; }),
+            backgroundColor: levels.map(function (l) { return riskColor[l]; }),
+            borderRadius: 6,
+          }],
+        },
+        options: {
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: "#eef2f7" } }, x: { grid: { display: false } } },
+        },
+      });
+
+      // --- ARR by tier (bar) ---
+      var tiers = ["Strategic", "Enterprise", "Growth", "SMB"];
+      var tierColors = ["#1d4ed8", "#2563eb", "#60a5fa", "#93c5fd"];
+      new Chart(document.getElementById("chart-tier"), {
+        type: "bar",
+        data: {
+          labels: tiers,
+          datasets: [{
+            label: "ARR (USD)",
+            data: tiers.map(function (t) { return s.arr_by_tier[t]; }),
+            backgroundColor: tierColors,
+            borderRadius: 6,
+          }],
+        },
+        options: {
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (c) { return " " + money(c.parsed.y); } } } },
+          scales: { y: { beginAtZero: true, ticks: { callback: function (v) { return money(v); } }, grid: { color: "#eef2f7" } }, x: { grid: { display: false } } },
+        },
+      });
+
+      // --- At-risk table ---
+      var atRisk = accts.filter(function (a) { return a.risk === "At-risk" || a.risk === "Critical"; })
+        .sort(function (a, b) { return a.health - b.health; });
+      document.getElementById("risk-table").querySelector("tbody").innerHTML = atRisk.map(function (a) {
+        return "<tr>" +
+          "<td><strong>" + esc(a.name) + "</strong><br><span class='muted'>" + esc(a.industry) + " · " + esc(a.region) + "</span></td>" +
+          "<td>" + esc(a.tier) + "</td>" +
+          "<td class='num'>" + money(a.arr) + "</td>" +
+          "<td><div class='health-bar'><div style='width:" + a.health + "%;background:" + riskColor[a.risk] + "'></div></div>" + a.health + "</td>" +
+          "<td><span class='pill' style='background:" + riskColor[a.risk] + "'>" + esc(a.risk) + "</span></td>" +
+          "<td class='num'>" + a.nps + "/10</td>" +
+          "<td>" + (a.renewal_date || "").slice(0, 10) + "</td>" +
+          "</tr>";
+      }).join("") || "<tr><td colspan='7' class='muted'>Sin cuentas en riesgo · No at-risk accounts</td></tr>";
+
+      // --- Upcoming renewals ---
+      var today = new Date().toISOString().slice(0, 10);
+      var upcoming = accts.filter(function (a) { return a.arr > 0 && a.renewal_date >= today; })
+        .sort(function (a, b) { return a.renewal_date.localeCompare(b.renewal_date); }).slice(0, 12);
+      document.getElementById("renewals").innerHTML = upcoming.map(function (a) {
+        return "<li><span><strong>" + esc(a.name) + "</strong> <span class='muted'>· " + esc(a.tier) + "</span></span>" +
+          "<span>" + (a.renewal_date || "").slice(0, 10) + " · <strong>" + money(a.arr) + "</strong> " +
+          "<span class='pill' style='background:" + riskColor[a.risk] + "'>" + esc(a.risk) + "</span></span></li>";
+      }).join("");
+    })
+    .catch(function (e) {
+      document.getElementById("kpi").innerHTML =
+        "<div class='kpi'><span class='label'>Error</span><span class='value'>No se pudo cargar data/portfolio.json</span>" +
+        "<span class='sub'>Sirve con HTTP (python -m http.server) o GitHub Pages / Serve over HTTP or GitHub Pages</span></div>";
+    });
+})();
+</script>
+</body>
+</html>

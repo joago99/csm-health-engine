@@ -1,0 +1,23 @@
+# Datos intermedios (regenerables con generate_data.py)
+data/portfolio_raw.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Secretos
+.env
+*.env
+*.key
+*.token
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Artefactos de verificación
+_verify*.png

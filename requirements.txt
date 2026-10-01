@@ -1,0 +1,14 @@
+# Requerimientos mínimos / Minimal requirements
+
+# Los scripts Python (generate_data.py, health.py, report.py) usan SOLO la stdlib.
+# The Python scripts use ONLY the stdlib — no third-party dependencies.
+
+# El dashboard usa Chart.js, ya vendoreado en dashboard/vendor/chart.umd.min.js.
+# The dashboard uses Chart.js, already vendored in dashboard/vendor/.
+
+# Para servir el dashboard localmente solo necesitas Python:
+# To serve the dashboard locally you only need Python:
+#   python -m http.server 8099
+
+# (Este archivo se mantiene vacío a propósito: no hay dependencias obligatorias.)
+# (Intentionally empty: there are no required dependencies.)
